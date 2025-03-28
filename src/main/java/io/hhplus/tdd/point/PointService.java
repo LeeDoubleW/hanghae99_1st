@@ -1,6 +1,7 @@
 package io.hhplus.tdd.point;
 
 import java.util.List;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -16,6 +17,8 @@ public class PointService {
 	
 	@Autowired
 	PointHistoryTable historyTable;
+	
+	private ReentrantLock lock = new ReentrantLock();
 	
 	final long MAXPOINT = 100000000L; 
 	
@@ -41,6 +44,7 @@ public class PointService {
 	
 	// 포인트 충전
 	public UserPoint chargePoint(long id, long amount) throws Exception {
+		lock.lock();
 		try {
 			// 충전시 금액 확인
 			if(amount <= 0) {
@@ -64,12 +68,13 @@ public class PointService {
 			}
 			return insertUserData;
 		} finally {
-			
+			lock.unlock();
 		}
 	}
 	
 	// 포인트 사용
 	public UserPoint usePoint(long id, long amount) throws Exception {
+		lock.lock();
 		try {
 			// 충전시 금액 확인
 			if(amount <= 0) {
@@ -93,7 +98,7 @@ public class PointService {
 			}
 			return insertUserData;
 		} finally {
-			
+			lock.unlock();
 		}
 	}
 
