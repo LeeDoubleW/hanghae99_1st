@@ -3,6 +3,9 @@ package io.hhplus.tdd;
 import static org.assertj.core.api.Assertions.*;
 
 import java.util.List;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
@@ -14,11 +17,13 @@ import io.hhplus.tdd.point.PointHistory;
 import io.hhplus.tdd.point.PointService;
 import io.hhplus.tdd.point.TransactionType;
 import io.hhplus.tdd.point.UserPoint;
+import lombok.extern.slf4j.Slf4j;
 
 /*
  *  통합 테스트 - V포즈를 예로들면 V포즈를 취하는게 통합테스트
  */
 
+@Slf4j
 @SpringBootTest
 class PointIntegrationTest {
 	
@@ -27,6 +32,8 @@ class PointIntegrationTest {
 	
 	@Autowired
 	private PointHistoryTable pht;
+	
+	private final int THREAD_COUNT = 100;  // 스레드수
 
 	
 	@DisplayName("충전 금액이 0이하일 경우 예외가 발생")
@@ -141,5 +148,78 @@ class PointIntegrationTest {
         assertThat(pointHistoryList).hasSize(2);
         assertThat(pointHistoryList.get(0).amount()).isEqualTo(chargeAmount);
         assertThat(pointHistoryList.get(1).amount()).isEqualTo(useAmount);
+    }
+    
+    @Test
+    @DisplayName("동일한 ID에 100개의 충전 요청이 동시에 들어온다.")
+    public void concurrentChargeUserPoint() throws Exception {
+        long id = 7L;
+        long firstAmount = 1000L;
+        long threadAmount = 500L;
+        // given
+        ExecutorService executor = Executors.newFixedThreadPool(THREAD_COUNT);
+        CountDownLatch latch = new CountDownLatch(THREAD_COUNT);
+        ps.chargePoint(id, firstAmount);
+
+        // when
+        // 스레드 생성 및 실행
+        for (int i = 0; i < THREAD_COUNT; i++) {
+            executor.submit(() -> {
+                try {
+                    ps.chargePoint(id, threadAmount);
+                } catch (Exception e) {
+					e.printStackTrace();
+				} finally {
+                    latch.countDown(); // 작업 완료 시 카운트 감소
+                }
+            });
+        }
+        
+        latch.await(); // 스레드 작업이 모두 완료될 때까지 대기
+        executor.shutdown(); // 스레드 풀 종료
+
+        // then
+        long expectedTotal = firstAmount + (threadAmount * THREAD_COUNT);
+        log.info("charge total : " + expectedTotal);
+        UserPoint userPoint = ps.getUser(id);
+        assertThat(userPoint.point()).isEqualTo(expectedTotal);
+    }
+
+
+    @Test
+    @DisplayName("동일한 ID에 100개의 사용 요청이 동시에 들어온다.")
+    public void concurrentDeductPoint() throws Exception {
+        long id = 8L;
+        long firstAmount = 100000L;
+        long threadAmount = 500L;
+        // given
+        CountDownLatch latch = new CountDownLatch(THREAD_COUNT);
+        ExecutorService executor = Executors.newFixedThreadPool(THREAD_COUNT);
+        ps.chargePoint(id, firstAmount);
+
+        // when
+        // 스레드 생성 및 실행
+        for (int i = 0; i < THREAD_COUNT; i++) {
+            executor.submit(() -> {
+                try {
+                    ps.usePoint(id, threadAmount);
+                } catch (Exception e) {
+					// TODO Auto-generated catch block
+					e.printStackTrace();
+				} finally {
+                    latch.countDown(); // 작업 완료 시 카운트 감소
+                }
+            });
+        }
+
+        latch.await(); // 스레드 작업이 모두 완료될 때까지 대기
+        executor.shutdown(); // 스레드 풀 종료
+
+        // then
+        // 최종 포인트 확인
+        long expectedTotal = (firstAmount - (threadAmount * THREAD_COUNT) <= 0) ? 0 : (firstAmount - (threadAmount * THREAD_COUNT));
+        log.info("use total : " + expectedTotal);
+        UserPoint userPoint = ps.getUser(id);
+        assertThat(userPoint.point()).isEqualTo(expectedTotal); // 최종 포인트는 차감된 금액
     }
 }
